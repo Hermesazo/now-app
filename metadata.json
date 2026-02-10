@@ -1,0 +1,7 @@
+{
+  "name": "Now",
+  "description": "A cognitive co-pilot application focused on productivity with Input, Focus, and Projects modules using a dark, futuristic aesthetic.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
