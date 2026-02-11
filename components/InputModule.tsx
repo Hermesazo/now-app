@@ -294,15 +294,10 @@ const InputModule: React.FC<InputModuleProps> = ({ onProcessComplete }) => {
       <div className={`flex flex-col items-center gap-6 transition-all duration-500 ${isActive ? 'opacity-0 translate-y-10 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
         <button className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all">
           <span className="material-symbols-outlined text-[20px]">keyboard</span>
-          <span className="text-sm font-semibold tracking-wide uppercase">Escribir en su lugar</span>
+          <span className="text-sm font-semibold tracking-wide uppercase">Usar teclado</span>
         </button>
 
-        {/* Ambient Dots */}
-        <div className="flex gap-2 opacity-30">
-            <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-            <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-            <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-        </div>
+        {/* Ambient Dots Removed */}
       </div>
 
       {/* Recording Status / Timer */}

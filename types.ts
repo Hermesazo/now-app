@@ -1,5 +1,10 @@
 export type ViewState = 'input' | 'focus' | 'projects';
 
+export interface ProjectAction {
+  type: 'createProject' | 'createTask';
+  projectName?: string; // For 'createTask', to know which project to target
+}
+
 export interface Project {
   id: string;
   title: string;

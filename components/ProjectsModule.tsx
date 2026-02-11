@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Step } from '../types';
+import { Project, Step, ProjectAction } from '../types';
 
 interface ProjectsModuleProps {
   onStartWork?: () => void;
   showBackButton?: boolean;
   onBack?: () => void;
+  initialAction?: ProjectAction | null;
+  onActionHandled?: () => void;
 }
 
 const INITIAL_PROJECTS: Project[] = [
@@ -38,8 +40,22 @@ const INITIAL_PROJECTS: Project[] = [
   }
 ];
 
-const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackButton, onBack }) => {
+// Drag Item Types
+type DragItem = 
+  | { type: 'project'; index: number }
+  | { type: 'task'; projectId: string; index: number };
+
+const ProjectsModule: React.FC<ProjectsModuleProps> = ({ 
+  onStartWork, 
+  showBackButton, 
+  onBack, 
+  initialAction, 
+  onActionHandled 
+}) => {
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  
+  // Drag State
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
   
   // Editing State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -53,10 +69,131 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
   const [toastVisible, setToastVisible] = useState(false);
   const [lastDeleted, setLastDeleted] = useState<{ projectId: string; task: Step; index: number } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  
+  // Refs for scrolling
+  const projectsBottomRef = useRef<HTMLDivElement>(null);
+  const taskInputRef = useRef<HTMLInputElement>(null);
 
   const totalTasks = projects.reduce((acc, curr) => acc + curr.steps.length, 0);
 
-  // --- Handlers ---
+  // --- Handle Initial Action ---
+  useEffect(() => {
+    if (!initialAction) return;
+
+    if (initialAction.type === 'createProject') {
+        handleAddProject();
+    } else if (initialAction.type === 'createTask') {
+        // Try to find project by name (since FocusModule sends names)
+        // If not found, default to first project or just ignore
+        let targetProject = projects.find(p => p.title === initialAction.projectName);
+        
+        // Fallback: if project name doesn't match exactly (because of Mock Data mismatch), pick the last one or create new
+        if (!targetProject && projects.length > 0) {
+             targetProject = projects[projects.length - 1]; // Simply attach to last project for demo purposes
+        }
+
+        if (targetProject) {
+            // Scroll to project is handled by just rendering
+            startAddingTask(targetProject.id);
+            // We need to wait for render to focus input, but startAddingTask sets state which triggers render
+        }
+    }
+
+    if (onActionHandled) onActionHandled();
+  }, [initialAction]);
+
+  // Scroll to bottom when adding project
+  useEffect(() => {
+      if (editingId && editingId.startsWith('p-') && projectsBottomRef.current) {
+          projectsBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+  }, [editingId, projects.length]);
+
+  // Focus on new task input when addingTaskToProjectId changes
+  useEffect(() => {
+    if (addingTaskToProjectId && taskInputRef.current) {
+        taskInputRef.current.focus();
+    }
+  }, [addingTaskToProjectId]);
+
+  // --- Drag & Drop Handlers ---
+
+  const handleDragStart = (e: React.DragEvent, item: DragItem) => {
+    e.stopPropagation();
+    setDragItem(item);
+    // Visual tweak
+    e.dataTransfer.effectAllowed = 'move';
+    // Transparent drag image usually handled by browser or can be set here
+    // e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Necessary to allow dropping
+  };
+
+  const handleDragEnter = (e: React.DragEvent, targetItem: DragItem) => {
+    e.preventDefault();
+    if (!dragItem) return;
+    if (dragItem.type !== targetItem.type) return;
+
+    // Reorder Projects
+    if (dragItem.type === 'project' && targetItem.type === 'project') {
+        if (dragItem.index === targetItem.index) return;
+
+        const newProjects = [...projects];
+        const item = newProjects.splice(dragItem.index, 1)[0];
+        newProjects.splice(targetItem.index, 0, item);
+        
+        setProjects(newProjects);
+        setDragItem({ ...dragItem, index: targetItem.index });
+    }
+
+    // Reorder Tasks
+    if (dragItem.type === 'task' && targetItem.type === 'task') {
+        const sourceProjId = dragItem.projectId;
+        const destProjId = targetItem.projectId;
+
+        // Same Project Reorder
+        if (sourceProjId === destProjId) {
+            if (dragItem.index === targetItem.index) return;
+            
+            const newProjects = projects.map(p => {
+                if (p.id === sourceProjId) {
+                    const newSteps = [...p.steps];
+                    const item = newSteps.splice(dragItem.index, 1)[0];
+                    newSteps.splice(targetItem.index, 0, item);
+                    return { ...p, steps: newSteps };
+                }
+                return p;
+            });
+            setProjects(newProjects);
+            setDragItem({ ...dragItem, index: targetItem.index });
+        } 
+        // Cross Project Move
+        else {
+             const newProjects = [...projects];
+             const sourceProj = newProjects.find(p => p.id === sourceProjId);
+             const destProj = newProjects.find(p => p.id === destProjId);
+             
+             if (sourceProj && destProj) {
+                 const item = sourceProj.steps[dragItem.index];
+                 // Remove
+                 sourceProj.steps = sourceProj.steps.filter((_, i) => i !== dragItem.index);
+                 // Add
+                 destProj.steps.splice(targetItem.index, 0, item);
+                 
+                 setProjects(newProjects);
+                 setDragItem({ type: 'task', projectId: destProjId, index: targetItem.index });
+             }
+        }
+    }
+  };
+
+  const handleDragEnd = () => {
+      setDragItem(null);
+  };
+
+  // --- Edit Handlers ---
 
   const handleEditClick = (id: string, currentText: string) => {
     setEditingId(id);
@@ -64,15 +201,17 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
   };
 
   const handleSaveEdit = (projectId: string, taskId?: string) => {
-    if (!tempText.trim()) return setEditingId(null);
+    if (!tempText.trim()) {
+        // If empty, revert or delete? Let's just stop editing.
+        setEditingId(null);
+        return;
+    }
 
     setProjects(prev => prev.map(p => {
       if (p.id === projectId) {
         if (!taskId) {
-          // Editing Project Title
           return { ...p, title: tempText };
         } else {
-          // Editing Task Title
           return {
             ...p,
             steps: p.steps.map(s => s.id === taskId ? { ...s, title: tempText } : s)
@@ -91,7 +230,6 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
   };
 
   const handleDeleteTask = (projectId: string, taskId: string) => {
-    // Find the task to save for undo
     const project = projects.find(p => p.id === projectId);
     const taskIndex = project?.steps.findIndex(s => s.id === taskId);
     const task = project?.steps[taskIndex!];
@@ -99,7 +237,6 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
     if (project && task && taskIndex !== undefined) {
       setLastDeleted({ projectId, task, index: taskIndex });
       
-      // Remove task
       setProjects(prev => prev.map(p => {
         if (p.id === projectId) {
           return { ...p, steps: p.steps.filter(s => s.id !== taskId) };
@@ -107,7 +244,6 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
         return p;
       }));
 
-      // Show Toast
       setToastVisible(true);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       toastTimeoutRef.current = window.setTimeout(() => {
@@ -156,13 +292,18 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
   };
 
   const handleAddProject = () => {
+      const newId = `p-${Date.now()}`;
       const newProject: Project = {
-          id: `p-${Date.now()}`,
+          id: newId,
           title: 'Nuevo Proyecto',
           colorClass: 'bg-primary',
           steps: []
       };
       setProjects(prev => [...prev, newProject]);
+      
+      // Auto focus on new project title
+      setEditingId(newId);
+      setTempText('Nuevo Proyecto');
   };
 
   return (
@@ -193,8 +334,22 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 pb-28 no-scrollbar">
         {projects.map((project, idx) => (
-            <section key={project.id} className="space-y-3 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 100}ms` }}>
-                <div className="flex items-center gap-3 mb-2">
+            <section 
+                key={project.id} 
+                className={`space-y-3 animate-in slide-in-from-bottom-4 duration-500 transition-opacity ${dragItem?.type === 'project' && dragItem.index === idx ? 'opacity-50' : 'opacity-100'}`} 
+                style={{ animationDelay: `${idx * 100}ms` }}
+                draggable
+                onDragStart={(e) => handleDragStart(e, { type: 'project', index: idx })}
+                onDragEnter={(e) => handleDragEnter(e, { type: 'project', index: idx })}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+            >
+                <div className="flex items-center gap-2 mb-2 group">
+                    {/* Project Drag Handle */}
+                    <div className="text-white/20 cursor-grab active:cursor-grabbing hover:text-white/50 p-1">
+                        <span className="material-symbols-outlined text-[20px]">drag_indicator</span>
+                    </div>
+
                     <div className="h-4 w-1 bg-primary rounded-full shadow-[0_0_10px_rgba(19,236,200,0.5)]"></div>
                     
                     {/* Project Title Editing */}
@@ -210,7 +365,7 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
                     ) : (
                         <h3 
                             onClick={() => handleEditClick(project.id, project.title)}
-                            className="text-lg font-bold text-white/90 cursor-text hover:text-primary transition-colors"
+                            className="text-lg font-bold text-white/90 cursor-text hover:text-primary transition-colors select-none"
                         >
                             {project.title}
                         </h3>
@@ -219,7 +374,22 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
 
                 <div className="space-y-2 pl-2">
                     {project.steps.map((step, sIdx) => (
-                        <div key={step.id} className="group relative flex items-start gap-3 bg-white/[0.02] hover:bg-white/[0.05] py-2 px-3 rounded-lg border border-white/5 transition-all">
+                        <div 
+                            key={step.id} 
+                            className={`group relative flex items-start gap-3 bg-white/[0.02] hover:bg-white/[0.05] py-2 px-3 rounded-lg border border-white/5 transition-all
+                                ${dragItem?.type === 'task' && dragItem.projectId === project.id && dragItem.index === sIdx ? 'opacity-30 border-dashed border-primary/50' : ''}
+                            `}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, { type: 'task', projectId: project.id, index: sIdx })}
+                            onDragEnter={(e) => handleDragEnter(e, { type: 'task', projectId: project.id, index: sIdx })}
+                            onDragOver={handleDragOver}
+                            onDragEnd={handleDragEnd}
+                        >
+                             {/* Task Drag Handle */}
+                             <div className="text-white/10 cursor-grab active:cursor-grabbing hover:text-white/40 mt-0.5 -ml-1">
+                                <span className="material-symbols-outlined text-[18px]">drag_indicator</span>
+                             </div>
+
                              {/* Number */}
                              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 mt-0.5">
                                  <span className="text-xs font-bold text-primary/60">{sIdx + 1}</span>
@@ -239,7 +409,7 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
                                 ) : (
                                     <p 
                                         onClick={() => handleEditClick(step.id, step.title)}
-                                        className="text-sm font-medium text-white/80 break-words leading-snug cursor-text hover:text-white transition-colors"
+                                        className="text-sm font-medium text-white/80 break-words leading-snug cursor-text hover:text-white transition-colors select-none"
                                     >
                                         {step.title}
                                     </p>
@@ -261,7 +431,7 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
                          <div className="flex items-center gap-2 mt-2 pl-3 pr-2 py-2 bg-white/[0.05] rounded-lg border border-primary/30 animate-in fade-in slide-in-from-top-1">
                             <span className="material-symbols-outlined text-[16px] text-primary">add</span>
                             <input 
-                                autoFocus
+                                ref={taskInputRef}
                                 value={newTaskText}
                                 onChange={(e) => setNewTaskText(e.target.value)}
                                 onBlur={() => submitNewTask(project.id)}
@@ -283,7 +453,10 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({ onStartWork, showBackBu
             </section>
         ))}
         
-        {/* Actions Footer - Inside scroll but at bottom */}
+        {/* Helper Div to scroll to bottom */}
+        <div ref={projectsBottomRef} />
+        
+        {/* Actions Footer - Inside scroll but at bottom. Ensure gap-2 (8px) */}
         <div className="pt-6 pb-2 flex flex-col gap-2">
              <button 
                 onClick={handleAddProject}
