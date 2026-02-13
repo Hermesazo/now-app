@@ -335,29 +335,18 @@ const InputModule: React.FC<InputModuleProps> = ({ onProcessComplete }) => {
         } catch (error) {
           console.error("AI Processing failed:", error);
         } finally {
-          setProcessingState('reviewing_transcript');
+          // Go directly to idle and signal completion
+          setProcessingState('idle');
+          if (onProcessComplete) {
+            onProcessComplete();
+          }
         }
       };
 
       processAI();
     }
 
-    if (processingState === 'reviewing_transcript') {
-      const timer = setTimeout(() => {
-        setProcessingState('reviewing_analysis');
-      }, 5000); // 5 seconds review
-      return () => clearTimeout(timer);
-    }
-
-    if (processingState === 'reviewing_analysis') {
-      const timer = setTimeout(() => {
-        setProcessingState('idle');
-        if (onProcessComplete) {
-          onProcessComplete();
-        }
-      }, 5000); // 5 seconds review
-      return () => clearTimeout(timer);
-    }
+    // Transcript and Analysis review timers removed as per user request
   }, [processingState, onProcessComplete, transcript, user]);
 
   if (processingState === 'typing') {
@@ -419,8 +408,16 @@ const InputModule: React.FC<InputModuleProps> = ({ onProcessComplete }) => {
         <h2 className="text-xl font-medium text-white/90 mb-6">Sintetizando ideas...</h2>
 
         <div className="w-64 h-1 bg-white/10 rounded-full overflow-hidden">
-          <div className="h-full bg-primary w-1/2 animate-[translateX_1s_ease-in-out_infinite]"></div>
+          <div className="h-full bg-primary animate-[filling_3s_ease-in-out_forwards]"></div>
         </div>
+
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes filling {
+                from { width: 0%; }
+                to { width: 100%; }
+            }
+        `}} />
 
         <p className="mt-8 text-white/50 text-center max-w-xs leading-relaxed">
           Estoy preparando un plan de acción para ayudarte a avanzar.
@@ -429,103 +426,7 @@ const InputModule: React.FC<InputModuleProps> = ({ onProcessComplete }) => {
     );
   }
 
-  if (processingState === 'reviewing_transcript') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full px-8 animate-in fade-in duration-1000">
-        <div className="absolute top-10 left-0 w-full flex justify-center z-20">
-          <h1 className="text-[10px] uppercase tracking-[0.25em] text-primary font-bold">TRANSCRIPCIÓN</h1>
-        </div>
-
-        <div className="relative w-full max-w-lg">
-          <div className="absolute -top-12 -left-4 text-primary opacity-20">
-            <span className="material-symbols-outlined text-[64px]">format_quote</span>
-          </div>
-
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-xl shadow-2xl">
-            <p className="text-xl md:text-2xl font-medium text-white/90 leading-relaxed text-center italic">
-              "{transcript || 'Lo siento, no pude capturar el texto.'}"
-            </p>
-          </div>
-
-          <div className="absolute -bottom-8 -right-4 text-primary opacity-20 rotate-180">
-            <span className="material-symbols-outlined text-[64px]">format_quote</span>
-          </div>
-        </div>
-
-        {/* Transition Progress Bar */}
-        <div className="mt-20 flex flex-col items-center gap-4">
-          <span className="text-[10px] uppercase tracking-widest text-white/30 font-bold">Continuando en breve</span>
-          <div className="w-48 h-0.5 bg-white/5 rounded-full overflow-hidden">
-            <div className="h-full bg-primary animate-[progress_5s_linear_forwards]"></div>
-          </div>
-        </div>
-
-        <style dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes progress {
-                from { width: 0%; }
-                to { width: 100%; }
-            }
-        `}} />
-      </div>
-    );
-  }
-
-  if (processingState === 'reviewing_analysis') {
-    return (
-      <div className="flex flex-col items-center h-full w-full px-8 pt-20 animate-in fade-in duration-1000 overflow-hidden">
-        <div className="absolute top-10 left-0 w-full flex justify-center z-20">
-          <h1 className="text-[10px] uppercase tracking-[0.25em] text-primary font-bold">ANÁLISIS DE OBJETIVOS</h1>
-        </div>
-
-        <div className="w-full max-w-lg overflow-y-auto no-scrollbar space-y-10 pb-32">
-          {analysisResult?.projects.map((project, idx) => (
-            <div key={idx} className="space-y-4 animate-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${idx * 150}ms` }}>
-              <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 leading-tight">
-                {project.name}
-              </h2>
-              <ul className="space-y-4">
-                {analysisResult.tasks
-                  .filter(t => t.project_name === project.name)
-                  .map((task, tIdx) => (
-                    <li key={tIdx} className="flex gap-4 text-white/70 leading-relaxed items-start">
-                      <span className="mt-2.5 h-1.5 w-1.5 rounded-full shrink-0 bg-primary shadow-[0_0_8px_rgba(19,236,200,0.6)]"></span>
-                      <span className="text-lg">{task.title}</span>
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          ))}
-
-          {analysisResult?.insights && (analysisResult.insights.dreams.length > 0) && (
-            <div className="pt-8 border-t border-white/5 animate-in fade-in duration-1000 delay-500">
-              <div className="bg-primary/5 rounded-2xl p-6 border border-primary/10">
-                <h3 className="text-primary text-[10px] uppercase tracking-widest font-bold mb-3">Visión Detectada</h3>
-                <p className="text-sm text-white/60 italic leading-relaxed">
-                  "{analysisResult.insights.dreams[0]}"
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Transition Progress Bar (Floating) */}
-        <div className="fixed bottom-32 left-0 w-full flex flex-col items-center gap-4 bg-gradient-to-t from-background via-background/80 to-transparent pt-10 pb-6">
-          <div className="w-48 h-0.5 bg-white/5 rounded-full overflow-hidden">
-            <div className="h-full bg-primary animate-[progress_5s_linear_forwards]"></div>
-          </div>
-        </div>
-
-        <style dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes progress {
-                from { width: 0%; }
-                to { width: 100%; }
-            }
-        `}} />
-      </div>
-    );
-  }
+  // Review screens removed to skip directly to completion
 
   const isRecording = processingState === 'recording';
   const isPaused = processingState === 'paused';

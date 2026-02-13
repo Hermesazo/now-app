@@ -8,8 +8,9 @@ export interface ProjectAction {
 export interface Project {
   id: string;
   title: string;
-  colorClass: string; // Tailwind color class for accents
+  colorClass: string;
   steps: Step[];
+  sort_order?: number;
 }
 
 export interface Step {
@@ -17,6 +18,7 @@ export interface Step {
   order: number;
   title: string;
   isDone: boolean;
+  sort_order?: number;
 }
 
 export interface Task {

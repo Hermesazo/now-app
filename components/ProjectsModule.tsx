@@ -61,33 +61,61 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({
     setLoading(true);
 
     try {
-      const { data: projectsData, error: projectsError } = await supabase
+      // Try with sort_order first
+      let { data: projectsData, error: projectsError } = await supabase
         .from('projects')
         .select('*')
         .eq('user_id', user.id)
+        .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
+
+      // If sort_order doesn't exist (code 42703), fall back to created_at
+      // Fallback for projects if sort_order column is missing (code 42703)
+      if (projectsError && (projectsError.code === '42703' || projectsError.message.includes('sort_order'))) {
+        const fallback = await supabase
+          .from('projects')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true });
+        projectsData = fallback.data;
+        projectsError = fallback.error;
+      }
 
       if (projectsError) throw projectsError;
 
-      const { data: tasksData, error: tasksError } = await supabase
+      let { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
         .select('*')
         .eq('user_id', user.id)
+        .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
+
+      // Fallback for tasks if sort_order column is missing (code 42703)
+      if (tasksError && (tasksError.code === '42703' || tasksError.message.includes('sort_order'))) {
+        const fallback = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true });
+        tasksData = fallback.data;
+        tasksError = fallback.error;
+      }
 
       if (tasksError) throw tasksError;
 
       const mappedProjects: Project[] = (projectsData || []).map(p => ({
         id: p.id,
         title: p.name,
-        colorClass: 'bg-primary', // Default color for now
+        colorClass: 'bg-primary',
+        sort_order: p.sort_order,
         steps: (tasksData || [])
           .filter(t => t.project_id === p.id)
           .map(t => ({
             id: t.id,
             order: 0,
             title: t.title,
-            isDone: t.status === 'done'
+            isDone: t.status === 'done',
+            sort_order: t.sort_order
           }))
       }));
 
@@ -218,8 +246,33 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({
     }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = async () => {
     setDragItem(null);
+    if (!user) return;
+
+    // After drag ends, persist the new order to Supabase
+    try {
+      // We wrap the updates in case sort_order doesn't exist yet
+      // 1. Update Projects Order
+      for (let i = 0; i < projects.length; i++) {
+        const p = projects[i];
+        await supabase.from('projects')
+          .update({ sort_order: i })
+          .eq('id', p.id);
+      }
+
+      // 2. Update Tasks Order for each project
+      for (const project of projects) {
+        for (let i = 0; i < project.steps.length; i++) {
+          const s = project.steps[i];
+          await supabase.from('tasks')
+            .update({ sort_order: i })
+            .eq('id', s.id);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not persist order (likely missing sort_order column):", err);
+    }
   };
 
   // --- Edit Handlers ---
@@ -266,12 +319,17 @@ const ProjectsModule: React.FC<ProjectsModuleProps> = ({
   const handleAddProject = async () => {
     if (!user) return;
 
+    const nextSortOrder = projects.length > 0
+      ? Math.max(...projects.map(p => p.sort_order || 0)) + 1
+      : 0;
+
     const { data, error } = await supabase
       .from('projects')
       .insert({
         user_id: user.id,
         name: 'Nuevo Proyecto',
-        status: 'active'
+        status: 'active',
+        sort_order: nextSortOrder
       })
       .select()
       .single();
